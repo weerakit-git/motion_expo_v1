@@ -2,21 +2,32 @@ const config = {
     totalSlides: 10,
     lerp: 0.075,
     scrollSpeed: 3.5,
-    minSize: 0.1,
-    growth: 0.25,
+    centerWidth: 0.15,
+    minScale: 0.36,
+    spread: 2.5,
+    fadeStart: 0.5,
     aspect: 1 / 1.25,
+    gap: 12,
+    radiusRatio: 0.05,
     baseline: 0.0,
 };
 
 const slider = document.querySelector(".slider");
 
-const growthRatio = Math.exp(config.growth);
+const scaleAt = (u) =>
+    config.minScale + (1 - config.minScale) / (1 + (u / config.spread) ** 2);
 
-const slideCount = Math.ceil(Math.log(1 + (growthRatio - 1) / config.minSize) / config.growth) + 4;
+const offsetAt = (u, baseWidth) =>
+    baseWidth *
+        (config.minScale * u +
+            (1 - config.minScale) * config.spread * Math.atan(u / config.spread)) +
+    config.gap * u;
+
+const slideCount = Math.ceil(1 / (config.centerWidth * config.minScale)) + 6;
 
 const lerp = (start, end, t) => start + (end - start) * t;
 const wrap = (value, max) => ((value % max) + max) % max;
-const edgeX = (position, width) => (width * config.minSize * (Math.pow(growthRatio, position) - 1)) / (growthRatio - 1);
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const slides = [];
 const slideStreamIndex = [];
@@ -24,13 +35,14 @@ const slideStreamIndex = [];
 for (let i = 0; i < slideCount; i++) {
     const slide = document.createElement("div");
     slide.className = "slide";
+
     const img = document.createElement("img");
     img.alt = "";
     slide.appendChild(img);
     slider.appendChild(slide);
 
     slides.push(slide);
-    slideStreamIndex.push(i);
+    slideStreamIndex.push(i - Math.floor(slideCount / 2));
 }
 
 function setSlideImage(slide, imageNumber) {
@@ -45,26 +57,24 @@ let scrollTarget = 0;
 slider.addEventListener("wheel", (e) => {
     e.preventDefault();
     scrollTarget += (e.deltaY + e.deltaX) * config.scrollSpeed * 0.0014;
-},
-    { passive: false },
-);
+}, { passive: false });
 
-let lastPointerX = null
+let lastPointerX = null;
 
 slider.addEventListener("pointerdown", (e) => {
     lastPointerX = e.clientX;
     slider.setPointerCapture(e.pointerId);
-})
+});
 
 slider.addEventListener("pointermove", (e) => {
-    if (lastPointerX == null) return;
+    if (lastPointerX === null) return;
     scrollTarget += (lastPointerX - e.clientX) * config.scrollSpeed * -0.005;
     lastPointerX = e.clientX;
-})
+});
 
 const releasePointer = () => {
-    lastPointerX = null
-}
+    lastPointerX = null;
+};
 
 slider.addEventListener("pointerup", releasePointer);
 slider.addEventListener("pointercancel", releasePointer);
@@ -75,32 +85,38 @@ function render() {
     const sliderWidth = slider.clientWidth;
     const sliderHeight = slider.clientHeight;
     const baselineOffset = sliderHeight * config.baseline;
-
+    const baseWidth = sliderWidth * config.centerWidth;
+    const centerX = sliderWidth / 2;
+    const recycleMargin = baseWidth;
 
     for (let i = 0; i < slideCount; i++) {
         const slide = slides[i];
         let streamIndex = slideStreamIndex[i];
 
-        while (edgeX(streamIndex + scroll, sliderWidth) > sliderWidth)
+        while (centerX + offsetAt(streamIndex + scroll, baseWidth) > sliderWidth + recycleMargin)
             streamIndex -= slideCount;
-        while (edgeX(streamIndex + scroll + 1, sliderWidth) < 0)
+        while (centerX + offsetAt(streamIndex + scroll, baseWidth) < -recycleMargin)
             streamIndex += slideCount;
         slideStreamIndex[i] = streamIndex;
 
-        const left = Math.round(edgeX(streamIndex + scroll, sliderWidth));
-        const right = Math.round(edgeX(streamIndex + scroll + 1, sliderWidth));
-        const width = right - left;
-        const height = width / config.aspect;
+        const u = streamIndex + scroll;
+        const scale = scaleAt(u);
+        const width = Math.round(baseWidth * scale);
+        const height = Math.round(width / config.aspect);
+        const left = Math.round(centerX + offsetAt(u, baseWidth) - width / 2);
+        const opacity = clamp((scale - config.minScale) / (config.fadeStart - config.minScale), 0, 1);
 
         setSlideImage(slide, wrap(streamIndex, config.totalSlides) + 1);
 
         slide.style.width = `${width}px`;
         slide.style.height = `${height}px`;
-        slide.style.zIndex = Math.round(right);
-        slide.style.transform = `translate(${left}px, ${-baselineOffset}px)`
+        slide.style.borderRadius = `${Math.round(width * config.radiusRatio)}px`;
+        slide.style.opacity = opacity;
+        slide.style.zIndex = width;
+        slide.style.transform = `translate(${left}px, ${-baselineOffset}px)`;
     }
 
-    requestAnimationFrame(render)
+    requestAnimationFrame(render);
 }
 
-render()
+render();
